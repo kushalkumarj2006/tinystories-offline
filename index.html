@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TinyStories - Offline Browser AI</title>
+    <style>
+        body { 
+            font-family: system-ui, -apple-system, sans-serif; 
+            max-width: 800px; 
+            margin: 2rem auto; 
+            padding: 1rem; 
+            background: #fafafa;
+        }
+        h1 { color: #333; margin-bottom: 0.25rem; }
+        .subtitle { color: #666; margin-top: 0; margin-bottom: 1.5rem; font-size: 0.9rem; }
+        textarea { 
+            width: 100%; 
+            padding: 0.75rem; 
+            font-size: 1rem; 
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-family: inherit;
+            box-sizing: border-box;
+        }
+        button { 
+            padding: 0.75rem 1.5rem; 
+            font-size: 1rem; 
+            cursor: pointer; 
+            background: #2563eb;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-weight: 500;
+            margin-top: 0.5rem;
+        }
+        button:hover:not(:disabled) { background: #1d4ed8; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        #output { 
+            margin-top: 1rem; 
+            padding: 1rem; 
+            background: white; 
+            border: 1px solid #ddd;
+            border-radius: 8px; 
+            white-space: pre-wrap; 
+            min-height: 100px;
+        }
+        .status { 
+            color: #2563eb; 
+            margin: 1rem 0; 
+            font-size: 0.875rem;
+            padding: 0.5rem;
+            background: #eff6ff;
+            border-radius: 8px;
+        }
+        .status.error { background: #fee2e2; color: #dc2626; }
+        .status.success { background: #dcfce7; color: #16a34a; }
+        hr { margin: 1rem 0; border: none; border-top: 1px solid #eee; }
+    </style>
+</head>
+<body>
+    <h1>📖 TinyStories - 100% Offline</h1>
+    <div class="subtitle">Runs completely in your browser. No data leaves your computer. No internet needed after first load.</div>
+    
+    <textarea id="prompt" rows="4" placeholder="Enter a story prompt...">Once upon a time, there was a little cat who wanted to learn how to read</textarea>
+    <br>
+    <button id="generate">✨ Generate Story</button>
+    
+    <div id="status" class="status">📥 Initializing...</div>
+    <div id="output"></div>
+    
+    <hr>
+    <details>
+        <summary style="font-size: 0.8rem; color: #666; cursor: pointer;">⚙️ Model Info</summary>
+        <p style="font-size: 0.8rem; color: #666; margin-top: 0.5rem;">
+            <strong>Model:</strong> TinyStories-1M (GPTNeo)<br>
+            <strong>Parameters:</strong> 1 million<br>
+            <strong>File size:</strong> ~16 MB (quantized)<br>
+            <strong>Status:</strong> Fully offline capable
+        </p>
+    </details>
+
+    <script src="transformers.min.js"></script>
+    <script>
+        (function() {
+            // Wait for transformers to be available
+            if (!window.transformers) {
+                document.getElementById('status').textContent = '❌ Error: transformers.min.js not loaded!';
+                document.getElementById('status').className = 'status error';
+                return;
+            }
+
+            const { env, pipeline } = window.transformers;
+            
+            // === CRITICAL: Configure for FULL OFFLINE MODE ===
+            env.allowRemoteModels = false;      // Never fetch from Hugging Face CDN
+            env.allowLocalModels = true;         // Only use local files
+            env.localModelPath = './models/';    // Look for models here
+            env.useBrowserCache = true;           // Cache for faster reloads
+            
+            console.log('=== Transformers.js Config ===');
+            console.log('Version:', window.transformers.version || 'unknown');
+            console.log('allowRemoteModels:', env.allowRemoteModels);
+            console.log('localModelPath:', env.localModelPath);
+            console.log('===============================');
+            
+            let generator = null;
+            let isLoading = false;
+            
+            const statusDiv = document.getElementById('status');
+            const outputDiv = document.getElementById('output');
+            const generateBtn = document.getElementById('generate');
+            const promptInput = document.getElementById('prompt');
+            
+            async function loadModel() {
+                if (isLoading) return;
+                isLoading = true;
+                
+                try {
+                    statusDiv.textContent = '📥 Loading model from local folder... (this may take 5-10 seconds on first load)';
+                    statusDiv.className = 'status';
+                    
+                    console.log('Looking for model at: ./models/mkly/TinyStories-1M-ONNX/');
+                    console.log('Expected files: config.json, tokenizer.json, tokenizer_config.json, model.onnx');
+                    
+                    // Load the pipeline with explicit model ID
+                    generator = await pipeline('text-generation', 'mkly/TinyStories-1M-ONNX');
+                    
+                    statusDiv.textContent = '✅ Model ready! You can now generate stories.';
+                    statusDiv.className = 'status success';
+                    generateBtn.disabled = false;
+                    console.log('Model loaded successfully!');
+                    
+                } catch (err) {
+                    statusDiv.textContent = `❌ Error loading model: ${err.message}`;
+                    statusDiv.className = 'status error';
+                    console.error('Load error:', err);
+                    console.error('Check that model files exist in: ./models/mkly/TinyStories-1M-ONNX/');
+                    console.error('Required files: config.json, tokenizer.json, tokenizer_config.json, model.onnx');
+                } finally {
+                    isLoading = false;
+                }
+            }
+            
+            async function generateStory() {
+                if (!generator) {
+                    statusDiv.textContent = '⚠️ Model still loading, please wait...';
+                    statusDiv.className = 'status';
+                    return;
+                }
+                
+                const prompt = promptInput.value.trim();
+                if (!prompt) {
+                    outputDiv.textContent = 'Please enter a story prompt.';
+                    return;
+                }
+                
+                outputDiv.textContent = '📝 Generating story... (this may take a few seconds)';
+                generateBtn.disabled = true;
+                
+                try {
+                    const startTime = performance.now();
+                    const result = await generator(prompt, {
+                        max_new_tokens: 150,
+                        temperature: 0.8,
+                        do_sample: true,
+                        top_k: 50,
+                        top_p: 0.95
+                    });
+                    const endTime = performance.now();
+                    
+                    outputDiv.textContent = result[0].generated_text;
+                    console.log(`Generation completed in ${(endTime - startTime).toFixed(0)}ms`);
+                    
+                } catch (err) {
+                    outputDiv.textContent = `Error during generation: ${err.message}`;
+                    console.error('Generation error:', err);
+                } finally {
+                    generateBtn.disabled = false;
+                }
+            }
+            
+            // Connect button
+            generateBtn.onclick = generateStory;
+            generateBtn.disabled = true;
+            
+            // Start loading
+            loadModel();
+        })();
+    </script>
+</body>
+</html>
